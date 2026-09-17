@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MesLite.Data;
 using MesLite.Models;
+using MesLite.DTOs;
 
 namespace MesLite.Controllers
 {
@@ -40,11 +41,86 @@ namespace MesLite.Controllers
             return wo;
         }
 
-        [HttpPost]
-        public async Task<ActionResult<WorkOrder>> Create(WorkOrder wo)
+        // 工單詳情：BOM 展開需求 + 已領料明細 + 已報工紀錄，一次給前端
+        [HttpGet("{id}/detail")]
+        public async Task<IActionResult> GetDetail(int id)
         {
-            wo.CreatedAt = DateTime.Now;
-            wo.Status = "DRAFT";
+            var wo = await _db.WorkOrders.Include(w => w.Product).FirstOrDefaultAsync(w => w.Id == id);
+            if (wo == null) return NotFound("工單不存在");
+
+            // BOM 展開：這張工單的產品，生產 TargetQty 需要哪些料、要多少、現有庫存多少
+            var bomRequirement = await _db.Boms
+                .Where(b => b.ParentItemId == wo.ProductId)
+                .Include(b => b.ChildItem)
+                .Select(b => new
+                {
+                    materialId = b.ChildItemId,
+                    itemCode = b.ChildItem!.ItemCode,
+                    name = b.ChildItem!.Name,
+                    requiredPerUnit = b.RequiredQty,
+                    requiredTotal = b.RequiredQty * wo.TargetQty,
+                    currentStock = b.ChildItem!.StockQty
+                }).ToListAsync();
+
+            // 已領料明細（type = ISSUE）
+            var issuedTransactions = await _db.InventoryTransactions
+                .Where(t => t.WoId == id && t.Type == "ISSUE")
+                .Include(t => t.Material)
+                .Select(t => new
+                {
+                    t.Id,
+                    t.MaterialId,
+                    materialName = t.Material!.Name,
+                    t.Qty,
+                    t.OperatorName,
+                    t.CreatedAt
+                }).ToListAsync();
+
+            // 已報工紀錄
+            var workReports = await _db.WorkReports
+                .Where(r => r.WoId == id)
+                .OrderByDescending(r => r.Id)
+                .Select(r => new
+                {
+                    r.Id,
+                    r.OperatorName,
+                    r.CompletedQty,
+                    r.ReportTime
+                }).ToListAsync();
+
+            var totalReported = workReports.Sum(r => r.CompletedQty);
+
+            return Ok(new
+            {
+                workOrder = new
+                {
+                    wo.Id,
+                    wo.WoNumber,
+                    wo.ProductId,
+                    productName = wo.Product!.Name,
+                    wo.TargetQty,
+                    wo.Status,
+                    wo.CreatedAt
+                },
+                bomRequirement,
+                issuedTransactions,
+                workReports,
+                totalReported,
+                remainingQty = wo.TargetQty - totalReported
+            });
+        }
+
+        [HttpPost]
+        public async Task<ActionResult<WorkOrder>> Create(WorkOrderCreateDto dto)
+        {
+            var wo = new WorkOrder
+            {
+                WoNumber = dto.WoNumber,
+                ProductId = dto.ProductId,
+                TargetQty = dto.TargetQty,
+                Status = "DRAFT",
+                CreatedAt = DateTime.Now
+            };
             _db.WorkOrders.Add(wo);
             await _db.SaveChangesAsync();
             return CreatedAtAction(nameof(GetById), new { id = wo.Id }, wo);

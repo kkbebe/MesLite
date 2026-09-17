@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MesLite.Data;
 using MesLite.Models;
+using MesLite.DTOs;
 
 namespace MesLite.Controllers
 {
@@ -36,8 +37,15 @@ namespace MesLite.Controllers
         }
 
         [HttpPost]
-        public async Task<ActionResult<Bom>> Create(Bom bom)
+        public async Task<ActionResult<Bom>> Create(BomCreateDto dto)
         {
+            var bom = new Bom
+            {
+                ParentItemId = dto.ParentItemId,
+                ChildItemId = dto.ChildItemId,
+                RequiredQty = dto.RequiredQty
+            };
+
             _db.Boms.Add(bom);
             await _db.SaveChangesAsync();
             return Ok(bom);

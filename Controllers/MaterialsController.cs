@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MesLite.Data;
 using MesLite.Models;
+using MesLite.DTOs;
+
 
 namespace MesLite.Controllers
 {
@@ -29,24 +31,33 @@ namespace MesLite.Controllers
         }
 
         [HttpPost]
-        public async Task<ActionResult<Material>> Create(Material material)
+        public async Task<ActionResult<Material>> Create(MaterialCreateDto dto)
         {
+            var material = new Material
+            {
+                ItemCode = dto.ItemCode,
+                Name = dto.Name,
+                Type = dto.Type,
+                StockQty = dto.StockQty
+            };
+
             _db.Materials.Add(material);
             await _db.SaveChangesAsync();
             return CreatedAtAction(nameof(GetById), new { id = material.Id }, material);
         }
 
         [HttpPut("{id}")]
-        public async Task<IActionResult> Update(int id, Material material)
+        public async Task<IActionResult> Update(int id, MaterialUpdateDto dto)
         {
-            if (id != material.Id) return BadRequest();
-            _db.Entry(material).State = EntityState.Modified;
-            try { await _db.SaveChangesAsync(); }
-            catch (DbUpdateConcurrencyException)
-            {
-                if (!await _db.Materials.AnyAsync(m => m.Id == id)) return NotFound();
-                throw;
-            }
+            var material = await _db.Materials.FindAsync(id);
+            if (material == null) return NotFound();
+
+            material.ItemCode = dto.ItemCode;
+            material.Name = dto.Name;
+            material.Type = dto.Type;
+            material.StockQty = dto.StockQty;
+
+            await _db.SaveChangesAsync();
             return NoContent();
         }
 
